@@ -1,4 +1,6 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
+const API_BASE_URL =
+    process.env.NEXT_PUBLIC_API_BASE_URL ??
+    (process.env.NODE_ENV === "development" ? "http://localhost:8000" : undefined);
 
 if (!API_BASE_URL) {
     console.warn("NEXT_PUBLIC_API_BASE_URL is not defined. API calls will likely fail.");

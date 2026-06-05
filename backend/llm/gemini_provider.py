@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 from google import genai
 from typing import Any, Dict, Optional
 from llm.base_provider import BaseLLMProvider
@@ -13,11 +14,12 @@ class GeminiProvider(BaseLLMProvider):
         self.model_name = model_name or os.getenv("GEMINI_MODEL") or "gemini-3.5-flash"
 
     def _clean_schema(self, schema: Dict[str, Any]) -> Dict[str, Any]:
-        """Recursively remove 'additionalProperties' from the schema."""
+        """Recursively strip Gemini-unsupported JSON Schema keys."""
         if not isinstance(schema, dict):
             return schema
-        
-        new_schema = {k: v for k, v in schema.items() if k != "additionalProperties"}
+
+        unsupported = {"additionalProperties", "default"}
+        new_schema = {k: v for k, v in schema.items() if k not in unsupported}
         for k, v in new_schema.items():
             if isinstance(v, dict):
                 new_schema[k] = self._clean_schema(v)
@@ -61,26 +63,29 @@ class GeminiProvider(BaseLLMProvider):
                         print(f"Rate limit hit (429), retrying in {wait_time}s... (Attempt {attempt+1})")
                         await asyncio.sleep(wait_time)
                         continue
-                
+
                 # Fallback for "Developer API mode" schema errors or other issues
-            if "additionalProperties" in str(e) or "response_schema" in str(e):
-                print(f"Schema error detected, falling back to raw prompt: {e}")
-                schema_str = str(schema.model_json_schema() if hasattr(schema, 'model_json_schema') else schema)
-                fallback_prompt = f"{prompt}\n\nIMPORTANT: Output MUST be valid JSON matching this schema: {schema_str}\nReturn ONLY the JSON object, no markdown."
-                
-                fallback_res = await self.client.aio.models.generate_content(
-                    model=self.model_name,
-                    contents=fallback_prompt
-                )
-                try:
-                    # Strip potential markdown blocks
-                    text = fallback_res.text.strip()
-                    if text.startswith("```json"):
-                        text = text.split("```json")[-1].split("```")[0].strip()
-                    elif text.startswith("```"):
-                        text = text.split("```")[-1].split("```")[0].strip()
-                    return json.loads(text)
-                except:
-                    raise ValueError(f"Fallback generation also failed: {e}")
-            
-            raise ValueError(f"Gemini Generation Error: {e}")
+                if any(
+                    marker in str(e)
+                    for marker in ("additionalProperties", "response_schema", "Default value")
+                ):
+                    print(f"Schema error detected, falling back to raw prompt: {e}")
+                    schema_str = str(schema.model_json_schema() if hasattr(schema, 'model_json_schema') else schema)
+                    fallback_prompt = f"{prompt}\n\nIMPORTANT: Output MUST be valid JSON matching this schema: {schema_str}\nReturn ONLY the JSON object, no markdown."
+
+                    fallback_res = await self.client.aio.models.generate_content(
+                        model=self.model_name,
+                        contents=fallback_prompt
+                    )
+                    try:
+                        # Strip potential markdown blocks
+                        text = fallback_res.text.strip()
+                        if text.startswith("```json"):
+                            text = text.split("```json")[-1].split("```")[0].strip()
+                        elif text.startswith("```"):
+                            text = text.split("```")[-1].split("```")[0].strip()
+                        return json.loads(text)
+                    except Exception:
+                        raise ValueError(f"Fallback generation also failed: {e}")
+
+                raise ValueError(f"Gemini Generation Error: {e}")
