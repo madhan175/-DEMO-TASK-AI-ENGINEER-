@@ -1,0 +1,15 @@
+# Environment
+.env
+backend/.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+.venv/
+venv/
+
+# Local runtime data
+backend/database/runtime_test.db
