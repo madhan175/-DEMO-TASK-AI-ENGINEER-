@@ -47,8 +47,18 @@ export interface UISchema {
     pages: UIPage[];
 }
 
+export interface Permission {
+    action: string;
+    resource: string;
+}
+
+export interface AuthRole {
+    name: string;
+    permissions: Permission[];
+}
+
 export interface AuthSchema {
-    roles: any[];
+    roles: AuthRole[];
     matrix: Record<string, string[]>;
 }
 

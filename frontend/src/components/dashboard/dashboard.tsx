@@ -32,7 +32,7 @@ import { generateApp, getPipelineStatus, getProject } from "@/lib/api";
 import { AppConfig, PipelineStatus } from "@/types/app-config";
 import { GenerationHeader } from "./generation-header";
 import { PipelineStepper } from "./pipeline-stepper";
-import { ValidationScorePanel, RepairSuggestionsPanel, ExecutionPreviewPanel } from "./dashboard-panels";
+import { ValidationScorePanel, RepairSuggestionsPanel, ExecutionPreviewPanel, JsonOutputPanel, AuthRolesPanel } from "./dashboard-panels";
 
 const samplePrompts = [
     { title: "E-commerce platform with payments", icon: Share2 },
@@ -52,20 +52,25 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
     const [model, setModel] = useState("gemini");
     const [isGenerating, setIsGenerating] = useState(false);
     const [config, setConfig] = useState<AppConfig | null>(null);
-    const [activeTab, setActiveTab] = useState("architecture");
+    const [activeTab, setActiveTab] = useState("json");
+    const [generateError, setGenerateError] = useState<string | null>(null);
     const fetchingConfig = useRef(false);
+    const isIdle = !projectId && !isGenerating;
 
     const handleGenerate = async () => {
         if (!prompt) return;
         setIsGenerating(true);
         setConfig(null);
+        setGenerateError(null);
         fetchingConfig.current = false;
         lastFetchedStage.current = -1;
+        setActiveTab("json");
         try {
             const data = await generateApp(prompt, model);
             onGenerate(data.project_id);
         } catch (error) {
             console.error("Failed to start generation:", error);
+            setGenerateError(error instanceof Error ? error.message : "Failed to start generation");
             setIsGenerating(false);
         }
     };
@@ -89,7 +94,7 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
             fetchingConfig.current = true;
             getProject(projectId)
                 .then(newConfig => {
-                    setConfig(newConfig);
+                    if (newConfig) setConfig(newConfig);
                     lastFetchedStage.current = latestSuccessIdx;
                     fetchingConfig.current = false;
                 })
@@ -101,10 +106,23 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
 
         if (isComplete) {
             setIsGenerating(false);
+            setActiveTab("json");
+            if (projectId && !fetchingConfig.current) {
+                fetchingConfig.current = true;
+                getProject(projectId)
+                    .then(newConfig => {
+                        if (newConfig) setConfig(newConfig);
+                        fetchingConfig.current = false;
+                    })
+                    .catch(() => { fetchingConfig.current = false; });
+            }
         }
 
         if (status?.stages?.some(s => s.status === 'failed')) {
             setIsGenerating(false);
+            const failedStage = status.stages.find(s => s.status === 'failed');
+            const stageError = failedStage?.errors?.[0];
+            if (stageError) setGenerateError(stageError);
         }
     }, [status, projectId]);
 
@@ -157,6 +175,12 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
                                             <option value="ollama">Ollama (Local)</option>
                                         </select>
                                     </div>
+                                    {generateError && (
+                                        <div className="flex items-start gap-2 p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-[11px] font-medium">
+                                            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                                            <span>{generateError}</span>
+                                        </div>
+                                    )}
                                 </CardContent>
                             </Card>
                         </div>
@@ -190,6 +214,7 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
                                     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                                         <TabsList className="bg-transparent border-b border-muted/20 w-full justify-start rounded-none h-12 p-0 gap-8 mb-6 overflow-x-auto overflow-y-hidden custom-scrollbar pb-1">
                                             {[
+                                                { id: "json", label: "JSON Output" },
                                                 { id: "architecture", label: "Architecture" },
                                                 { id: "database", label: "Database Schema" },
                                                 { id: "api", label: "API Endpoints" },
@@ -208,6 +233,14 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
                                         </TabsList>
 
                                         <div className="min-h-[400px]">
+                                            <TabsContent value="json" className="mt-0">
+                                                <JsonOutputPanel
+                                                    config={config}
+                                                    isGenerating={isGenerating}
+                                                    isIdle={isIdle}
+                                                />
+                                            </TabsContent>
+
                                             <TabsContent value="architecture" className="mt-0 animate-in fade-in duration-500 space-y-6">
                                                 <Card className="rounded-3xl border-none bg-slate-950 shadow-2xl relative overflow-hidden min-h-[300px]">
                                                     <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, #6C4CF1 1px, transparent 0)', backgroundSize: '24px 24px' }}></div>
@@ -275,10 +308,15 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
                                                                     ))}
                                                                 </div>
                                                             </div>
-                                                        ) : (
+                                                        ) : isGenerating ? (
                                                             <div className="flex flex-col items-center justify-center h-64 gap-4">
                                                                 <Loader2 className="w-8 h-8 text-primary animate-spin" />
                                                                 <p className="text-[11px] text-primary font-bold uppercase tracking-[0.3em] animate-pulse">Calculating Flow Mesh...</p>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex flex-col items-center justify-center h-64 gap-3 text-center px-6">
+                                                                <Layout className="w-8 h-8 text-muted-foreground/30" />
+                                                                <p className="text-[11px] text-muted-foreground font-medium">Architecture will appear here after generation starts.</p>
                                                             </div>
                                                         )}
                                                     </CardContent>
@@ -373,7 +411,11 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
                                                             </div>
                                                         </Card>
                                                     );
-                                                }) || <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">Database schema loading...</div>}
+                                                }) || (
+                                                    <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">
+                                                        {isGenerating ? "Database schema loading..." : "No database schema yet."}
+                                                    </div>
+                                                )}
                                             </TabsContent>
 
                                             <TabsContent value="api" className="mt-0 animate-in fade-in duration-500">
@@ -387,7 +429,11 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
                                                             <span className="text-[11px] text-muted-foreground ml-auto group-hover:text-foreground transition-colors">{ep.summary}</span>
                                                             <ChevronRight className="w-4 h-4 text-muted-foreground/20 group-hover:text-primary transition-all duration-300 transform group-hover:translate-x-1" />
                                                         </div>
-                                                    )) || <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">API endpoints loading...</div>}
+                                                    )) || (
+                                                        <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">
+                                                            {isGenerating ? "API endpoints loading..." : "No API endpoints yet."}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </TabsContent>
 
@@ -419,28 +465,21 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
                                                                 </Button>
                                                             </div>
                                                         </Card>
-                                                    )) || <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">UI structure loading...</div>}
+                                                    )) || (
+                                                        <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">
+                                                            {isGenerating ? "UI structure loading..." : "No UI structure yet."}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </TabsContent>
 
                                             <TabsContent value="auth" className="mt-0 animate-in fade-in duration-500">
-                                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                                    <Card className="rounded-2xl border border-border bg-card shadow-xl shadow-black/5 p-6 space-y-4">
-                                                        <h3 className="text-[10px] font-bold uppercase tracking-widest text-primary">Access Matrix</h3>
-                                                        <div className="space-y-3">
-                                                            {config?.auth?.matrix && Object.entries(config.auth.matrix).map(([role, permissions], i) => (
-                                                                <div key={i} className="flex flex-col gap-2 p-3 bg-muted/10 rounded-xl">
-                                                                    <span className="text-[11px] font-black uppercase">{role}</span>
-                                                                    <div className="flex flex-wrap gap-1.5">
-                                                                        {(permissions as string[]).map((p, j) => (
-                                                                            <Badge key={j} variant="secondary" className="text-[8px]">{p}</Badge>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </Card>
-                                                </div>
+                                                <AuthRolesPanel
+                                                    roles={config?.auth?.roles}
+                                                    matrix={config?.auth?.matrix}
+                                                    isGenerating={isGenerating}
+                                                    isIdle={isIdle}
+                                                />
                                             </TabsContent>
 
                                             <TabsContent value="rules" className="mt-0 animate-in fade-in duration-500">
@@ -452,7 +491,11 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
                                                             </div>
                                                             <p className="text-[11px] text-muted-foreground leading-relaxed">{rule.description || rule}</p>
                                                         </div>
-                                                    )) || <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">Business rules loading...</div>}
+                                                    )) || (
+                                                        <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">
+                                                            {isGenerating ? "Business rules loading..." : "No business rules yet."}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </TabsContent>
                                         </div>
