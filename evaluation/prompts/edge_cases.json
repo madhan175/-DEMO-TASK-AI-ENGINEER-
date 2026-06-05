@@ -1,0 +1,42 @@
+[
+  {
+    "id": 11,
+    "prompt": "Make an app."
+  },
+  {
+    "id": 12,
+    "prompt": "Build a CRM but with no database."
+  },
+  {
+    "id": 13,
+    "prompt": "Create a system that does everything."
+  },
+  {
+    "id": 14,
+    "prompt": "Construct a social network with 1 billion users tomorrow."
+  },
+  {
+    "id": 15,
+    "prompt": "Develop a secure app with no authentication."
+  },
+  {
+    "id": 16,
+    "prompt": "Build a UI for a command line tool."
+  },
+  {
+    "id": 17,
+    "prompt": "Create a CRM with only one page and no buttons."
+  },
+  {
+    "id": 18,
+    "prompt": "Construct a database for a non-existent company."
+  },
+  {
+    "id": 19,
+    "prompt": "Develop a payment system with no money."
+  },
+  {
+    "id": 20,
+    "prompt": "Build an app using only emojis as requirements. \ud83c\udf55\ud83d\ude80\ud83d\uded2"
+  }
+]

@@ -1,0 +1,33 @@
+# ── Python ───────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ── Secrets — NEVER commit real keys ─────────────────────
+backend/.env
+.env
+
+# ── Node / Next.js ───────────────────────────────────────
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+
+# ── Database & generated projects ────────────────────────
+backend/database/projects/
+backend/database/*.db
+*.db
+*.sqlite
+
+# ── IDE & OS ─────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── Logs ─────────────────────────────────────────────────
+*.log
+
+# ── Backend nested git (keep only root git) ──────────────
+backend/.git/

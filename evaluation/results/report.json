@@ -1,0 +1,109 @@
+{
+    "timestamp": "2026-06-05T01:14:29.722542",
+    "total_tests": 10,
+    "success_rate": "100.0%",
+    "avg_latency": "14.9s",
+    "total_repairs": 0,
+    "detailed_results": [
+        {
+            "id": "std_01",
+            "name": "Full SaaS CRM",
+            "success": true,
+            "latency_sec": 15.33,
+            "repairs_triggered": 0,
+            "entities_count": 7,
+            "tables_count": 7,
+            "endpoints_count": 9
+        },
+        {
+            "id": "std_02",
+            "name": "E-learning Platform",
+            "success": true,
+            "latency_sec": 14.15,
+            "repairs_triggered": 0,
+            "entities_count": 7,
+            "tables_count": 7,
+            "endpoints_count": 9
+        },
+        {
+            "id": "std_03",
+            "name": "Hospital Management",
+            "success": true,
+            "latency_sec": 15.35,
+            "repairs_triggered": 0,
+            "entities_count": 7,
+            "tables_count": 7,
+            "endpoints_count": 7
+        },
+        {
+            "id": "std_04",
+            "name": "Inventory Tracker",
+            "success": true,
+            "latency_sec": 14.93,
+            "repairs_triggered": 0,
+            "entities_count": 7,
+            "tables_count": 7,
+            "endpoints_count": 8
+        },
+        {
+            "id": "std_05",
+            "name": "Project Workspace",
+            "success": true,
+            "latency_sec": 14.49,
+            "repairs_triggered": 0,
+            "entities_count": 7,
+            "tables_count": 7,
+            "endpoints_count": 9
+        },
+        {
+            "id": "edge_vague_01",
+            "name": "Highly Vague",
+            "success": true,
+            "latency_sec": 14.15,
+            "repairs_triggered": 0,
+            "entities_count": 6,
+            "tables_count": 6,
+            "endpoints_count": 7
+        },
+        {
+            "id": "edge_conflict_01",
+            "name": "Conflicting Requirements",
+            "success": true,
+            "latency_sec": 16.09,
+            "repairs_triggered": 0,
+            "entities_count": 7,
+            "tables_count": 7,
+            "endpoints_count": 7
+        },
+        {
+            "id": "edge_incomplete_01",
+            "name": "Incomplete Input",
+            "success": true,
+            "latency_sec": 13.83,
+            "repairs_triggered": 0,
+            "entities_count": 7,
+            "tables_count": 7,
+            "endpoints_count": 7
+        },
+        {
+            "id": "edge_complex_01",
+            "name": "Extreme Complexity",
+            "success": true,
+            "latency_sec": 15.75,
+            "repairs_triggered": 0,
+            "entities_count": 7,
+            "tables_count": 7,
+            "endpoints_count": 9
+        },
+        {
+            "id": "edge_malicious_01",
+            "name": "System Stress",
+            "success": true,
+            "latency_sec": 14.95,
+            "repairs_triggered": 0,
+            "entities_count": 7,
+            "tables_count": 7,
+            "endpoints_count": 7
+        }
+    ]
+}

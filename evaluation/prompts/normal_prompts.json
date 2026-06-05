@@ -1,0 +1,42 @@
+[
+  {
+    "id": 1,
+    "prompt": "Build a CRM with login, contacts, and dashbaord."
+  },
+  {
+    "id": 2,
+    "prompt": "Create an e-commerce app with products and payments."
+  },
+  {
+    "id": 3,
+    "prompt": "Construct a task manager with projects and subtasks."
+  },
+  {
+    "id": 4,
+    "prompt": "Develop a fitness tracker with workout logs and goals."
+  },
+  {
+    "id": 5,
+    "prompt": "Build a recipe book with categories and search."
+  },
+  {
+    "id": 6,
+    "prompt": "Create a movie database with actors and ratings."
+  },
+  {
+    "id": 7,
+    "prompt": "Construct a library system with books and loans."
+  },
+  {
+    "id": 8,
+    "prompt": "Develop a simple chat app with rooms and messages."
+  },
+  {
+    "id": 9,
+    "prompt": "Build a portfolio site with projects and contact form."
+  },
+  {
+    "id": 10,
+    "prompt": "Create an inventory system for a small shop."
+  }
+]

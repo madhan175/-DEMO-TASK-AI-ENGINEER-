@@ -1,0 +1,61 @@
+{
+    "standard_prompts": [
+        {
+            "id": "std_01",
+            "name": "Full SaaS CRM",
+            "prompt": "Build a CRM with login, contacts, dashboard, role-based access, and premium plan with payments. Admins can see analytics."
+        },
+        {
+            "id": "std_02",
+            "name": "E-learning Platform",
+            "prompt": "An LMS where teachers can upload courses, students can enroll, and there are assessments with auto-grading."
+        },
+        {
+            "id": "std_03",
+            "name": "Hospital Management",
+            "prompt": "System for doctors to manage patient records, appointments, and prescriptions with a nurse role for vitals."
+        },
+        {
+            "id": "std_04",
+            "name": "Inventory Tracker",
+            "prompt": "Track warehouse stock, multiple locations, suppliers, and auto-reorder when stock is below 10 units."
+        },
+        {
+            "id": "std_05",
+            "name": "Project Workspace",
+            "prompt": "A Trello-like app with boards, cards, comments, file attachments, and team permissions."
+        }
+    ],
+    "edge_cases": [
+        {
+            "id": "edge_vague_01",
+            "name": "Highly Vague",
+            "type": "vague",
+            "prompt": "Build a cool social network for pets."
+        },
+        {
+            "id": "edge_conflict_01",
+            "name": "Conflicting Requirements",
+            "type": "conflicting",
+            "prompt": "A bank app where transactions are completely anonymous but admins must track every user identity for KYC."
+        },
+        {
+            "id": "edge_incomplete_01",
+            "name": "Incomplete Input",
+            "type": "incomplete",
+            "prompt": "A delivery app that has..."
+        },
+        {
+            "id": "edge_complex_01",
+            "name": "Extreme Complexity",
+            "type": "complex",
+            "prompt": "A multi-tenant marketplace for fractal art with NFT integration, bidding, escrow, and a complex royalty distribution engine."
+        },
+        {
+            "id": "edge_malicious_01",
+            "name": "System Stress",
+            "type": "malicious",
+            "prompt": "Generate a database with 500 tables and 5000 API endpoints for a simple todo list."
+        }
+    ]
+}
