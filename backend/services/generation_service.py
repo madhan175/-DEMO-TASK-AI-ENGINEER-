@@ -40,41 +40,65 @@ class GenerationService:
             self.projects[project_id] = config
             self.pipeline_statuses[project_id] = compiler.status
             
-            # Remove from active compilers once complete
+            # Remove from active compilers once compile phase is complete
             if project_id in self.active_compilers:
                 del self.active_compilers[project_id]
-            await compiler.update_status(7, "running")
-            val_results = self.validator.validate(config)
-            await compiler.update_status(
-                7,
-                "success" if val_results["is_valid"] else "failed",
-                output=val_results,
-            )
 
-            # 3. Targeted repair (deterministic fixes + per-layer LLM delta, not full blind retry)
-            if not val_results["is_valid"]:
-                await compiler.update_status(8, "running")
-                repair_engine.history = []
-                config, val_results = await repair_engine.repair_until_valid(config, self.validator)
+            # 2. Validation
+            try:
+                await compiler.update_status(7, "running")
+                val_results = self.validator.validate(config)
                 await compiler.update_status(
-                    8,
+                    7,
                     "success" if val_results["is_valid"] else "failed",
-                    output={
-                        "repair_log": repair_engine.history,
-                        "remaining_errors": val_results.get("errors", []),
-                        "final_score": val_results.get("score", 0),
-                        "categories_fixed": val_results.get("categories", {}),
-                    },
+                    output=val_results,
                 )
-                # Re-validate after repair for stage 7 output snapshot
-                await compiler.update_status(7, "success" if val_results["is_valid"] else "failed", output=val_results)
-            else:
-                await compiler.update_status(8, "success", output={"message": "No repair needed", "repair_log": []})
+                print(f"[{project_id}] Validation: valid={val_results['is_valid']}, errors={len(val_results.get('errors', []))}")
+            except Exception as e:
+                print(f"[{project_id}] Validation error: {e}")
+                val_results = {"is_valid": False, "errors": [str(e)], "score": 0}
+                await compiler.update_status(7, "failed", error=str(e))
+
+            # 3. Targeted repair (deterministic fixes + per-layer LLM delta)
+            try:
+                if not val_results["is_valid"]:
+                    await compiler.update_status(8, "running")
+                    repair_engine.history = []
+                    config, val_results = await asyncio.wait_for(
+                        repair_engine.repair_until_valid(config, self.validator),
+                        timeout=90,  # 90s max for entire repair phase
+                    )
+                    await compiler.update_status(
+                        8,
+                        "success" if val_results["is_valid"] else "failed",
+                        output={
+                            "repair_log": repair_engine.history,
+                            "remaining_errors": val_results.get("errors", []),
+                            "final_score": val_results.get("score", 0),
+                            "categories_fixed": val_results.get("categories", {}),
+                        },
+                    )
+                    await compiler.update_status(7, "success" if val_results["is_valid"] else "failed", output=val_results)
+                    print(f"[{project_id}] Repair done: valid={val_results['is_valid']}")
+                else:
+                    await compiler.update_status(8, "success", output={"message": "No repair needed", "repair_log": []})
+                    print(f"[{project_id}] Repair skipped (already valid)")
+            except asyncio.TimeoutError:
+                print(f"[{project_id}] Repair timed out after 90s")
+                await compiler.update_status(8, "failed", error="Repair timed out (90s)")
+            except Exception as e:
+                print(f"[{project_id}] Repair error: {e}")
+                await compiler.update_status(8, "failed", error=str(e))
 
             # 4. Execution
-            await compiler.update_status(9, "running")
-            exec_results = self.executor.execute(config)
-            await compiler.update_status(9, "success" if exec_results["status"] == "success" else "failed", output=exec_results)
+            try:
+                await compiler.update_status(9, "running")
+                exec_results = self.executor.execute(config)
+                await compiler.update_status(9, "success" if exec_results["status"] == "success" else "failed", output=exec_results)
+                print(f"[{project_id}] Execution: {exec_results['status']}")
+            except Exception as e:
+                print(f"[{project_id}] Execution error: {e}")
+                await compiler.update_status(9, "failed", error=str(e))
             
             # Save to JSON for persistence
             self.projects[project_id] = config
@@ -93,6 +117,7 @@ class GenerationService:
             
             error_msg = f"Pipeline Error: {str(e)}"
             await compiler.update_status(current_idx, "failed", error=error_msg)
+            compiler.status.progress = 100
             self.pipeline_statuses[project_id] = compiler.status
             print(f"ERROR for project {project_id} at stage {current_idx}: {e}")
 

@@ -17,9 +17,9 @@ export default function Home() {
       if (!statusData) return false;
       setStatus(statusData);
 
-      const hasFailed = statusData.stages?.some((s: PipelineStage) => s.status === "failed");
+      const hasFatalError = statusData.stages?.some((s: PipelineStage) => s.status === "failed" && s.errors && s.errors.length > 0);
       const isComplete = statusData.progress === 100;
-      return hasFailed || isComplete;
+      return hasFatalError || isComplete;
     } catch (error) {
       console.error("Polling error:", error);
       return false;

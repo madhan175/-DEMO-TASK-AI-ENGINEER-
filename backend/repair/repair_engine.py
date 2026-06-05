@@ -1,3 +1,4 @@
+import asyncio
 import copy
 from typing import Any, Dict, List, Optional, Type
 
@@ -28,7 +29,8 @@ LAYER_MODELS: Dict[AffectedLayer, Type[BaseModel]] = {
     AffectedLayer.RULES: RulesSchema,
 }
 
-MAX_REPAIR_ROUNDS = 3
+MAX_REPAIR_ROUNDS = 1
+LLM_REPAIR_TIMEOUT = 30  # seconds per layer regeneration
 
 
 class RepairEngine:
@@ -40,6 +42,7 @@ class RepairEngine:
         self,
         config: AppConfig,
         validation_result: Dict[str, Any],
+        validator=None,
     ) -> AppConfig:
         issues = self._issues_from_result(validation_result)
         if not issues:
@@ -49,6 +52,12 @@ class RepairEngine:
         deterministic_actions = self._apply_deterministic_fixes(repaired, issues)
         for action in deterministic_actions:
             self.history.append(action)
+
+        if validator:
+            new_val = validator.validate(repaired)
+            if new_val["is_valid"]:
+                return repaired
+            issues = self._issues_from_result(new_val)
 
         remaining_layers = layers_needing_repair(issues)
         for layer in remaining_layers:
@@ -83,7 +92,7 @@ class RepairEngine:
                 "layers_affected": last_result.get("layers_affected", []),
             })
 
-            current = await self.repair(current, last_result)
+            current = await self.repair(current, last_result, validator=validator)
             last_result = validator.validate(current)
 
             self.history.append({
@@ -140,17 +149,21 @@ class RepairEngine:
                     "strategy": "deterministic",
                 })
 
-        # Auth: strip permissions referencing unknown resources (keep role)
+        # Auth: fix invalid permission actions and strip hallucinated permissions
         known = self._known_resources(config)
+        valid_actions = {"read", "write", "delete", "manage", "create", "update", "list"}
         for role in config.auth.roles:
             before = len(role.permissions)
+            for p in role.permissions:
+                if p.action and p.action.lower() not in valid_actions:
+                    p.action = "manage"  # fallback
             role.permissions = [
                 p for p in role.permissions
                 if self._resource_exists(p.resource, known)
             ]
             if len(role.permissions) < before:
                 actions.append({
-                    "repair_action": f"Removed hallucinated permissions from role '{role.name}'",
+                    "repair_action": f"Removed hallucinated/invalid permissions from role '{role.name}'",
                     "layer": "auth",
                     "strategy": "deterministic",
                 })
@@ -170,7 +183,15 @@ class RepairEngine:
         table_names = list(table_columns.keys())
         for table in config.db.tables:
             for col in table.columns:
-                if not col.references or "." not in col.references:
+                if not col.references:
+                    continue
+                if "." not in col.references:
+                    col.references = None
+                    actions.append({
+                        "repair_action": f"Cleared malformed FK on {table.name}.{col.name}",
+                        "layer": "db",
+                        "strategy": "deterministic",
+                    })
                     continue
                 ref_table, ref_col = col.references.split(".", 1)
                 if ref_table not in table_names or ref_col not in table_columns.get(ref_table, set()):
@@ -191,10 +212,69 @@ class RepairEngine:
                     "strategy": "deterministic",
                 })
 
-        # UI: remove broken data_source references
+        # ARCHITECTURE: strip entities that don't map to tables
+        from validation.json_guard import normalize_name
+        if config.architecture and config.architecture.entities:
+            table_norm = {normalize_name(t.name) for t in config.db.tables if t.name}
+            valid_entities = []
+            for entity in config.architecture.entities:
+                if not entity.name:
+                    continue
+                en = normalize_name(entity.name)
+                if any(en in tn or tn in en for tn in table_norm):
+                    valid_entities.append(entity)
+                else:
+                    actions.append({
+                        "repair_action": f"Removed unmapped Architecture entity: '{entity.name}'",
+                        "layer": "architecture",
+                        "strategy": "deterministic",
+                    })
+            if valid_entities:
+                config.architecture.entities = valid_entities
+            else:
+                from schemas.app_config import Entity
+                config.architecture.entities = [Entity(name="System", description="Core system runtime")]
+
+        # API: strip endpoints that don't map to tables (cross-layer fix)
+        if config.api and config.api.endpoints:
+            table_names = {t.name for t in config.db.tables if t.name}
+            valid_endpoints = []
+            for endpoint in config.api.endpoints:
+                if not endpoint.path:
+                    continue
+                path_lower = endpoint.path.lower()
+                from validation.json_guard import normalize_name
+                mapped = False
+                for name in table_names:
+                    if name.lower() in path_lower or normalize_name(name) in normalize_name(endpoint.path):
+                        mapped = True
+                        break
+                if mapped:
+                    valid_endpoints.append(endpoint)
+                else:
+                    actions.append({
+                        "repair_action": f"Removed unmapped API endpoint: '{endpoint.path}'",
+                        "layer": "api",
+                        "strategy": "deterministic",
+                    })
+            if valid_endpoints:
+                config.api.endpoints = valid_endpoints
+            else:
+                from schemas.api import Endpoint
+                config.api.endpoints = [Endpoint(method="GET", path="/health", summary="Healthcheck API", request_body=None, response_body=None)]
+
+        # UI: remove broken data_source references and fix unknown component types
         endpoint_paths = {e.path for e in config.api.endpoints}
+        valid_components = { "Header", "Table", "Form", "Chart", "Sidebar", "Card", "DataSummary", "TenantProfilePanel", "AccessPolicyTable", "Button", "Modal" }
         for page in config.ui.pages:
             for comp in page.components:
+                if comp.type not in valid_components:
+                    comp.type = "Card"  # fallback component type
+                    actions.append({
+                        "repair_action": f"Changed unknown component to 'Card' on page '{page.name}'",
+                        "layer": "ui",
+                        "strategy": "deterministic",
+                    })
                 if comp.type == "Table" and comp.props:
                     ds = comp.props.get("data_source")
                     if ds and ds not in endpoint_paths:
@@ -204,6 +284,29 @@ class RepairEngine:
                             "layer": "ui",
                             "strategy": "deterministic",
                         })
+
+        # RULES: strip business rules referencing unknown entities
+        if config.rules and config.rules.rules:
+            known = self._known_resources(config)
+            valid_rules = []
+            for rule in config.rules.rules:
+                text = f"{rule.description} {rule.logic}"
+                tokens = [t for t in text.replace(".", " ").split() if t and t[0].isupper() and len(t) > 2]
+                if all(self._resource_exists(token, known) for token in tokens):
+                    valid_rules.append(rule)
+                else:
+                    actions.append({
+                        "repair_action": f"Removed hallucinated business rule: '{getattr(rule, 'description', 'unknown')}'",
+                        "layer": "rules",
+                        "strategy": "deterministic",
+                    })
+            if valid_rules:
+                config.rules.rules = valid_rules
+            else:
+                from schemas.business_rules import BusinessRule
+                config.rules.rules = [BusinessRule(description="System operates normally", logic="Default state behavior", triggers=["system_start"])]
+
+
 
         return actions
 
@@ -253,7 +356,10 @@ class RepairEngine:
         """
 
         try:
-            repaired_json = await self.llm.generate_json(prompt, model)
+            repaired_json = await asyncio.wait_for(
+                self.llm.generate_json(prompt, model),
+                timeout=LLM_REPAIR_TIMEOUT,
+            )
             segment = model.model_validate(repaired_json)
             self.history.append({
                 "repair_action": f"LLM delta-regenerated '{layer.value}' layer",

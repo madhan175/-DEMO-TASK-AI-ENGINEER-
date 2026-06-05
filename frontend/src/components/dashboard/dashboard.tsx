@@ -118,10 +118,10 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
             }
         }
 
-        if (status?.stages?.some(s => s.status === 'failed')) {
+        const fatalStage = status?.stages?.find(s => s.status === 'failed' && s.errors && s.errors.length > 0);
+        if (fatalStage) {
             setIsGenerating(false);
-            const failedStage = status.stages.find(s => s.status === 'failed');
-            const stageError = failedStage?.errors?.[0];
+            const stageError = fatalStage.errors[0];
             if (stageError) setGenerateError(stageError);
         }
     }, [status, projectId]);
@@ -412,10 +412,10 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
                                                         </Card>
                                                     );
                                                 }) || (
-                                                    <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">
-                                                        {isGenerating ? "Database schema loading..." : "No database schema yet."}
-                                                    </div>
-                                                )}
+                                                        <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">
+                                                            {isGenerating ? "Database schema loading..." : "No database schema yet."}
+                                                        </div>
+                                                    )}
                                             </TabsContent>
 
                                             <TabsContent value="api" className="mt-0 animate-in fade-in duration-500">
@@ -430,10 +430,10 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
                                                             <ChevronRight className="w-4 h-4 text-muted-foreground/20 group-hover:text-primary transition-all duration-300 transform group-hover:translate-x-1" />
                                                         </div>
                                                     )) || (
-                                                        <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">
-                                                            {isGenerating ? "API endpoints loading..." : "No API endpoints yet."}
-                                                        </div>
-                                                    )}
+                                                            <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">
+                                                                {isGenerating ? "API endpoints loading..." : "No API endpoints yet."}
+                                                            </div>
+                                                        )}
                                                 </div>
                                             </TabsContent>
 
@@ -466,10 +466,10 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
                                                             </div>
                                                         </Card>
                                                     )) || (
-                                                        <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">
-                                                            {isGenerating ? "UI structure loading..." : "No UI structure yet."}
-                                                        </div>
-                                                    )}
+                                                            <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">
+                                                                {isGenerating ? "UI structure loading..." : "No UI structure yet."}
+                                                            </div>
+                                                        )}
                                                 </div>
                                             </TabsContent>
 
@@ -492,10 +492,10 @@ export function Dashboard({ status, onGenerate, projectId }: DashboardProps) {
                                                             <p className="text-[11px] text-muted-foreground leading-relaxed">{rule.description || rule}</p>
                                                         </div>
                                                     )) || (
-                                                        <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">
-                                                            {isGenerating ? "Business rules loading..." : "No business rules yet."}
-                                                        </div>
-                                                    )}
+                                                            <div className="h-40 flex items-center justify-center italic text-muted-foreground/40">
+                                                                {isGenerating ? "Business rules loading..." : "No business rules yet."}
+                                                            </div>
+                                                        )}
                                                 </div>
                                             </TabsContent>
                                         </div>
