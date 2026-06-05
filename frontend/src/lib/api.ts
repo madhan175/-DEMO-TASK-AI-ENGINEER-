@@ -1,9 +1,12 @@
 const API_BASE_URL =
     process.env.NEXT_PUBLIC_API_BASE_URL ??
+    process.env.NEXT_PUBLIC_API_URL ??
     (process.env.NODE_ENV === "development" ? "http://localhost:8000" : undefined);
 
 if (!API_BASE_URL) {
-    console.warn("NEXT_PUBLIC_API_BASE_URL is not defined. API calls will likely fail.");
+    console.warn(
+        "NEXT_PUBLIC_API_BASE_URL (or NEXT_PUBLIC_API_URL) is not defined. API calls will likely fail."
+    );
 }
 
 export async function generateApp(prompt: string, model: string = "gemini") {
