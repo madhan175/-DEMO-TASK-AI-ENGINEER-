@@ -167,8 +167,8 @@ graph LR
 | :--- | :--- |
 | **10-Stage Pipeline** | Intent → Design → DB → API → UI → Auth → Rules → Validation → Repair → Execution |
 | **Schema-Enforced LLM Output** | Pydantic models + Gemini JSON mode with schema sanitization for API compatibility |
-| **Cross-Layer Validator** | Deterministic checks: UI data sources map to real APIs; auth matrix references real roles |
-| **Delta-Repair Engine** | Feeds validation errors back to the LLM for targeted fixes instead of full regeneration |
+| **Cross-Layer Validator** | Detects invalid JSON, missing keys, hallucinated fields, schema mismatches, and logical inconsistencies across all layers |
+| **Delta-Repair Engine** | Deterministic auto-fixes first, then per-layer LLM regeneration (max 3 rounds) — never blind full retry |
 | **Runtime Execution** | Creates tables in a real SQLite file to prove the generated schema is valid SQL |
 | **Real-Time Dashboard** | Next.js UI with live pipeline stepper, architecture explorer, and error surfacing |
 | **Evaluation Suite** | 20 benchmark prompts (standard + edge cases) with latency and success-rate tracking |
@@ -211,6 +211,129 @@ graph LR
 | 7 | Validation | Full AppConfig | Score, error list, pass/fail |
 | 8 | Repair | Validation errors | Patched AppConfig + repair log |
 | 9 | Execution | AppConfig | SQLite table creation + runtime logs |
+
+---
+
+## Validation + Repair Engine (CORE)
+
+This is the **most important part** of the compiler. After the 7 LLM generation stages produce an `AppConfig`, a deterministic validator inspects the output, then a repair engine fixes issues — **without blindly regenerating the entire application**.
+
+```mermaid
+flowchart TD
+    A[AppConfig from compile stages 0–6] --> B[Validator]
+    B --> C{is_valid?}
+    C -->|Yes| E[Stage 9: Execution]
+    C -->|No| D[Repair Engine]
+    D --> D1[Step A: Deterministic fixes]
+    D1 --> D2[Step B: Delta LLM per layer]
+    D2 --> B
+    B -->|max 3 rounds| F[Final score + repair log]
+    F --> E
+```
+
+### What the validator detects
+
+| Issue type | Category | Examples |
+| :--- | :--- | :--- |
+| **Invalid JSON** | `invalid_json` | Malformed LLM output, markdown fences, empty responses (`json_guard.py`) |
+| **Missing keys** | `missing_key` | Empty `project_name`, tables with no columns, endpoints without summaries |
+| **Hallucinated fields** | `hallucinated_field` | Unknown root keys, FK refs to non-existent tables/columns, unknown UI component types, auth resources that don't exist |
+| **Schema mismatches** | `schema_mismatch` | Invalid SQL types, bad HTTP methods, paths not starting with `/`, SQLite DDL failures |
+| **Logical inconsistencies** | `logical_inconsistency` | Duplicate tables/columns/endpoints, missing primary keys, auth matrix roles not in `auth.roles`, entity↔table mismatch |
+
+Each issue is structured (not just a plain string):
+
+```json
+{
+  "category": "hallucinated_field",
+  "layer": "auth",
+  "message": "Auth matrix references unknown role 'GhostRole'",
+  "field_path": "auth.matrix.GhostRole",
+  "auto_fixable": true
+}
+```
+
+**Validation layers checked:**
+
+- **Structure** — required root fields (`project_name`, `intent`, …)
+- **Architecture** — entities, descriptions, duplicate names
+- **Database** — table/column integrity, SQL types, foreign keys, primary keys, **SQLite dry-run**
+- **API** — HTTP methods, path format, duplicate endpoints
+- **UI** — page routes, component types, `data_source` → API path mapping
+- **Auth** — roles vs matrix, permission actions, resource existence
+- **Rules** — required fields, references to known entities/tables
+- **Cross-layer** — architecture entities ↔ DB tables, API paths ↔ DB tables
+
+### How repair works (two-step, not blind retry)
+
+**Step A — Deterministic fixes (no LLM, fast):**
+
+| Fix | Layer |
+| :--- | :--- |
+| Create stub roles for unknown matrix entries | `auth` |
+| Strip hallucinated permissions | `auth` |
+| Assign primary key to tables missing one | `db` |
+| Clear invalid foreign key references | `db` |
+| Prefix API paths missing `/` | `api` |
+| Remove broken UI `data_source` references | `ui` |
+
+**Step B — Targeted LLM delta regeneration:**
+
+- Errors are grouped by layer (`db`, `api`, `ui`, `auth`, `rules`, `architecture`)
+- Only the **broken segment** is sent to the LLM with error context + cross-layer references
+- Up to **3 repair rounds** until valid or exhausted
+- Full `AppConfig` is **never** blindly regenerated
+
+```python
+# services/generation_service.py
+val_results = validator.validate(config)
+if not val_results["is_valid"]:
+    config, val_results = await repair_engine.repair_until_valid(config, validator)
+```
+
+### Validation output (Stage 7)
+
+```json
+{
+  "score": 72,
+  "is_valid": false,
+  "errors": ["[hallucinated_field] auth.matrix.GhostRole: ..."],
+  "issues": [{ "category": "hallucinated_field", "layer": "auth", "..." : "..." }],
+  "categories": { "hallucinated_field": 2, "schema_mismatch": 1 },
+  "layers_affected": ["auth", "db"],
+  "auto_fixable_count": 3
+}
+```
+
+### Repair output (Stage 8)
+
+```json
+{
+  "repair_log": [
+    { "repair_action": "Created stub role 'GhostRole' for matrix entry", "layer": "auth", "strategy": "deterministic" },
+    { "repair_action": "LLM delta-regenerated 'db' layer", "layer": "db", "strategy": "targeted_llm" }
+  ],
+  "final_score": 100,
+  "remaining_errors": []
+}
+```
+
+### Source files
+
+| File | Role |
+| :--- | :--- |
+| `backend/validation/error_types.py` | Error categories, affected layers, structured `ValidationIssue` |
+| `backend/validation/json_guard.py` | Safe JSON parsing, missing/hallucinated root key detection |
+| `backend/validation/validator.py` | Full cross-layer validator + SQLite DDL dry-run |
+| `backend/repair/repair_engine.py` | Deterministic fixes + per-layer LLM delta repair loop |
+| `backend/tests/test_validator_repair.py` | Unit tests (no LLM calls) |
+
+### Run validator tests
+
+```bash
+cd backend
+python -m pytest tests/test_validator_repair.py -v
+```
 
 ---
 
@@ -276,11 +399,16 @@ graph LR
 │   │
 │   ├── validation/
 │   │   ├── __init__.py
-│   │   └── validator.py               # Cross-layer consistency checks (deterministic)
+│   │   ├── error_types.py             # ErrorCategory, AffectedLayer, ValidationIssue
+│   │   ├── json_guard.py              # Invalid JSON + missing/hallucinated root key detection
+│   │   └── validator.py               # Cross-layer validator + SQLite DDL dry-run
 │   │
 │   ├── repair/
 │   │   ├── __init__.py
-│   │   └── repair_engine.py           # LLM-assisted delta repair from validation errors
+│   │   └── repair_engine.py           # Deterministic fixes + per-layer LLM delta repair
+│   │
+│   ├── tests/
+│   │   └── test_validator_repair.py   # Unit tests for validation + deterministic repair
 │   │
 │   ├── runtime/
 │   │   ├── __init__.py
@@ -743,7 +871,7 @@ These are the design decisions most relevant for technical interviews:
 
 2. **Fail-closed validation** — The system does not ship broken configs. Cross-layer checks run deterministically after LLM generation, before the user sees output.
 
-3. **Targeted repair, not blind retry** — Validation errors are fed to a repair prompt that fixes specific inconsistencies, reducing token cost ~60% vs. full regeneration.
+3. **Targeted repair, not blind retry** — Deterministic fixes run first (auth stubs, FK cleanup, path fixes). Remaining errors trigger **per-layer** LLM delta regeneration (only `db`, `api`, `ui`, etc.) for up to 3 rounds — never a full `AppConfig` blind retry.
 
 4. **Schema sanitization for Gemini** — Pydantic `model_json_schema()` includes `default` and `additionalProperties` keys that Gemini's response schema mode rejects. The provider strips these recursively before API calls.
 
@@ -774,7 +902,7 @@ Full analysis: [DOCS_TRADE_OFFS.md](./DOCS_TRADE_OFFS.md)
 - **Render free tier cold starts** — First request after idle may take 30–60 seconds while the backend wakes up.
 - **Rate limits** — Gemini API quotas can cause retries; the provider implements exponential backoff for 429 errors.
 - **File-based persistence** — Project configs are stored as JSON files, not a database (adequate for demo scale).
-- **Repair scope** — The repair engine sends the full config to the LLM; production would send only affected segments to save tokens.
+- **Repair coverage** — Deterministic fixes handle common cases; complex cross-layer mismatches may still need manual review after 3 repair rounds.
 - **Generated output is a blueprint** — The system produces structured config (schema, API spec, UI layout), not deployable React/Python source code (planned for v2).
 
 ---

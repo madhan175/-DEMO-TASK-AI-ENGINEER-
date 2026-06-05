@@ -45,16 +45,31 @@ class GenerationService:
                 del self.active_compilers[project_id]
             await compiler.update_status(7, "running")
             val_results = self.validator.validate(config)
-            await compiler.update_status(7, "success" if val_results["is_valid"] else "failed", output=val_results)
-            
-            # 3. Repair
+            await compiler.update_status(
+                7,
+                "success" if val_results["is_valid"] else "failed",
+                output=val_results,
+            )
+
+            # 3. Targeted repair (deterministic fixes + per-layer LLM delta, not full blind retry)
             if not val_results["is_valid"]:
                 await compiler.update_status(8, "running")
-                config = await repair_engine.repair(config, val_results["errors"])
-                val_results = self.validator.validate(config)
-                await compiler.update_status(8, "success", output={"repair_log": repair_engine.history})
+                repair_engine.history = []
+                config, val_results = await repair_engine.repair_until_valid(config, self.validator)
+                await compiler.update_status(
+                    8,
+                    "success" if val_results["is_valid"] else "failed",
+                    output={
+                        "repair_log": repair_engine.history,
+                        "remaining_errors": val_results.get("errors", []),
+                        "final_score": val_results.get("score", 0),
+                        "categories_fixed": val_results.get("categories", {}),
+                    },
+                )
+                # Re-validate after repair for stage 7 output snapshot
+                await compiler.update_status(7, "success" if val_results["is_valid"] else "failed", output=val_results)
             else:
-                await compiler.update_status(8, "success", output={"message": "No repair needed"})
+                await compiler.update_status(8, "success", output={"message": "No repair needed", "repair_log": []})
 
             # 4. Execution
             await compiler.update_status(9, "running")
